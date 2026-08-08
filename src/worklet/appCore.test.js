@@ -12,6 +12,7 @@ const mockActiveVaultRemoveFile = jest.fn()
 const mockVaultsList = jest.fn()
 const mockInitActiveVaultInstance = jest.fn()
 const mockGetIsActiveVaultInitialized = jest.fn()
+const mockGetVaultMigrationStatus = jest.fn()
 const mockCloseActiveVaultInstance = jest.fn()
 const mockVaultRemove = jest.fn()
 const mockVaultRemoveWriter = jest.fn()
@@ -59,6 +60,7 @@ jest.mock('./appDeps', () => ({
   vaultsList: (...args) => mockVaultsList(...args),
   initActiveVaultInstance: (...args) => mockInitActiveVaultInstance(...args),
   getIsActiveVaultInitialized: () => mockGetIsActiveVaultInitialized(),
+  getVaultMigrationStatus: () => mockGetVaultMigrationStatus(),
   closeActiveVaultInstance: (...args) => mockCloseActiveVaultInstance(...args),
   vaultRemove: (...args) => mockVaultRemove(...args),
   vaultRemoveWriter: (...args) => mockVaultRemoveWriter(...args),
@@ -220,6 +222,7 @@ jest.mock('./api', () => {
     ACTIVE_VAULT_FILE_GET: 10,
     ACTIVE_VAULT_INIT: 11,
     ACTIVE_VAULT_GET_STATUS: 12,
+    GET_VAULT_MIGRATION_STATUS: 82,
     ACTIVE_VAULT_CLOSE: 13,
     ACTIVE_VAULT_ADD: 14,
     ACTIVE_VAULT_REMOVE: 15,
@@ -665,6 +668,37 @@ describe('handleRpcCommand', () => {
 
     const payload = JSON.parse(reply.mock.calls[0][0])
     expect(payload).toEqual({ data: { status: true } })
+  })
+
+  test('GET_VAULT_MIGRATION_STATUS: returns migration status', async () => {
+    mockGetVaultMigrationStatus.mockReturnValue({
+      ready: true,
+      inProgress: false,
+      migratedToSchema: 2,
+      error: null,
+      lastResult: { alreadyMigrated: true }
+    })
+
+    const reply = jest.fn()
+    const req = {
+      command: API.GET_VAULT_MIGRATION_STATUS,
+      data: null,
+      reply
+    }
+
+    await handleRpcCommand(req)
+
+    expect(mockGetVaultMigrationStatus).toHaveBeenCalled()
+    const payload = JSON.parse(reply.mock.calls[0][0])
+    expect(payload).toEqual({
+      data: {
+        ready: true,
+        inProgress: false,
+        migratedToSchema: 2,
+        error: null,
+        lastResult: { alreadyMigrated: true }
+      }
+    })
   })
 
   test('ACTIVE_VAULT_CLOSE: success path', async () => {

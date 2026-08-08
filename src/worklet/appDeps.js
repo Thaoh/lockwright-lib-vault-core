@@ -22,6 +22,27 @@ import { OTP_TYPE } from '../constants/otpType'
 import { getConfig } from './utils/swarm'
 import { validateAndSanitizePath } from './validateAndSanitizePath'
 import { defaultMirrorKeys } from '../constants/defaultBlindMirrors'
+import {
+  VAULT_EXT_KEY,
+  SCHEMA_V2,
+  isV1RecordKey,
+  isV2RecordKey,
+  isV1FileKey,
+  isV2FileKey,
+  parseRecordIdFromKey,
+  parseFileKey,
+  recordKeyV1,
+  recordKeyV2,
+  fileKeyV1,
+  v1FileKeyToV2,
+  mergeV1IntoV2,
+  convertV1RecordToV2,
+  projectV2ToV1,
+  migrateToSchema2,
+  reconcileDualStore,
+  writeRecordV2AndProjectV1,
+  deepEqualJson
+} from './utils/recordNamespaces'
 
 let STORAGE_PATH = null
 let JOB_STORAGE_PATH = null
@@ -54,8 +75,30 @@ let lastActiveVaultId = null
 let lastActiveVaultEncryptionKey = null
 let lastOnUpdateCallback = null
 
+/** @type {{ ready: boolean, inProgress: boolean, migratedToSchema: number|null, error: string|null, lastResult: object|null }} */
+let vaultMigrationStatus = {
+  ready: false,
+  inProgress: false,
+  migratedToSchema: null,
+  error: null,
+  lastResult: null
+}
+
+/** @type {Set<string>} */
+let previousV1RecordIds = new Set()
+
+/** @type {ReturnType<typeof setTimeout>|null} */
+let reconcileDebounceTimer = null
+const RECONCILE_DEBOUNCE_MS = 100
+
 const pearpassPairer = new PearPassPairer()
 const rateLimiter = new RateLimiter()
+
+/**
+ * UI can wait on migrate completeness before listing records.
+ * @returns {{ ready: boolean, inProgress: boolean, migratedToSchema: number|null, error: string|null, lastResult: object|null }}
+ */
+export const getVaultMigrationStatus = () => ({ ...vaultMigrationStatus })
 
 /**
  * @param {string} path
@@ -171,6 +214,11 @@ const clearRestartCache = () => {
  * @returns {Promise<void>}
  */
 export const closeActiveVaultInstance = async (options) => {
+  if (reconcileDebounceTimer) {
+    clearTimeout(reconcileDebounceTimer)
+    reconcileDebounceTimer = null
+  }
+
   activeVaultInstance.removeAllListeners()
 
   await activeVaultInstance.close()
@@ -179,6 +227,14 @@ export const closeActiveVaultInstance = async (options) => {
   isActiveVaultInitialized = false
   // reset listener marker so future initListener can rebind
   listeningVaultId = null
+  previousV1RecordIds = new Set()
+  vaultMigrationStatus = {
+    ready: false,
+    inProgress: false,
+    migratedToSchema: null,
+    error: null,
+    lastResult: null
+  }
 
   if (options?.clearRestartCache) {
     clearRestartCache()
@@ -221,6 +277,168 @@ export const collectValuesByFilter = async (instance, filterFn) => {
 
     stream.on('error', (error) => reject(error))
   })
+}
+
+/**
+ * @param {Autopass} instance
+ * @param {Function} [filterFn]
+ * @returns {Promise<Array<{ key: string, value: any }>>}
+ */
+export const collectEntriesByFilter = async (instance, filterFn) => {
+  const stream = await instance.list()
+  const results = []
+
+  return new Promise((resolve, reject) => {
+    stream.on('data', ({ key, value }) => {
+      if (!value) {
+        return
+      }
+
+      let parsedValue
+      try {
+        parsedValue = JSON.parse(value)
+      } catch (err) {
+        workletLogger.error('collectEntriesByFilter: failed to parse record', {
+          key,
+          err
+        })
+        return
+      }
+
+      if (!parsedValue) {
+        return
+      }
+
+      if (!filterFn || filterFn(key)) {
+        results.push({ key, value: parsedValue })
+      }
+    })
+
+    stream.on('end', () => resolve(results))
+
+    stream.on('error', (error) => reject(error))
+  })
+}
+
+/**
+ * @returns {import('./utils/recordNamespaces.js').VaultAdapter}
+ */
+const createActiveVaultAdapter = () => ({
+  getJson: activeVaultGetRaw,
+  getWithFile: async (key) => {
+    const res = await activeVaultInstance.get(key)
+    if (!res) return { value: null, file: null }
+    let value = null
+    if (res.value) {
+      try {
+        value = JSON.parse(res.value)
+      } catch {
+        value = {}
+      }
+    }
+    return { value, file: res.file || null }
+  },
+  addJson: async (key, data, file = null) => {
+    await activeVaultInstance.add(key, JSON.stringify(data), file || undefined)
+  },
+  remove: async (key) => {
+    await activeVaultInstance.remove(key)
+  },
+  listEntries: async () => collectEntriesByFilter(activeVaultInstance)
+})
+
+const refreshPreviousV1RecordIds = async () => {
+  const entries = await collectEntriesByFilter(
+    activeVaultInstance,
+    isV1RecordKey
+  )
+  previousV1RecordIds = new Set(
+    entries.map(({ key }) => parseRecordIdFromKey(key)).filter(Boolean)
+  )
+}
+
+const runVaultMigration = async () => {
+  vaultMigrationStatus = {
+    ...vaultMigrationStatus,
+    ready: false,
+    inProgress: true,
+    error: null
+  }
+
+  try {
+    const adapter = createActiveVaultAdapter()
+    const result = await migrateToSchema2(adapter)
+    await refreshPreviousV1RecordIds()
+
+    const vaultExt = (await activeVaultGetRaw(VAULT_EXT_KEY)) || {}
+    vaultMigrationStatus = {
+      ready: result.complete || result.alreadyMigrated,
+      inProgress: false,
+      migratedToSchema:
+        Number(vaultExt.migratedToSchema) >= SCHEMA_V2
+          ? SCHEMA_V2
+          : (vaultExt.migratedToSchema ?? null),
+      error:
+        result.complete || result.alreadyMigrated
+          ? null
+          : 'Migration incomplete',
+      lastResult: result
+    }
+  } catch (error) {
+    workletLogger.error('runVaultMigration failed', error)
+    vaultMigrationStatus = {
+      ready: false,
+      inProgress: false,
+      migratedToSchema: null,
+      error: error?.message || String(error),
+      lastResult: null
+    }
+    throw error
+  }
+}
+
+const runIncrementalReconcile = async () => {
+  if (!isActiveVaultInitialized || !activeVaultInstance) return
+
+  const vaultExt = (await activeVaultGetRaw(VAULT_EXT_KEY)) || {}
+  const adapter = createActiveVaultAdapter()
+  const result = await reconcileDualStore(adapter, {
+    previousV1Ids: previousV1RecordIds,
+    blockV1DeleteMirror: vaultExt.blockV1DeleteMirror === true
+  })
+  previousV1RecordIds = result.previousV1Ids
+}
+
+const scheduleIncrementalReconcile = (after) => {
+  if (reconcileDebounceTimer) {
+    clearTimeout(reconcileDebounceTimer)
+  }
+
+  reconcileDebounceTimer = setTimeout(() => {
+    reconcileDebounceTimer = null
+    runIncrementalReconcile()
+      .catch((error) => {
+        workletLogger.error('incremental reconcile failed', error)
+      })
+      .finally(() => {
+        after?.()
+      })
+  }, RECONCILE_DEBOUNCE_MS)
+}
+
+/**
+ * Remove v2 file keys for a record id.
+ * @param {string} recordId
+ * @returns {Promise<void>}
+ */
+const removeV2FilesForRecord = async (recordId) => {
+  const entries = await collectEntriesByFilter(activeVaultInstance, (key) => {
+    const parsed = parseFileKey(key)
+    return parsed?.schema === 2 && parsed.recordId === recordId
+  })
+  for (const { key } of entries) {
+    await activeVaultInstance.remove(key)
+  }
 }
 
 /**
@@ -405,6 +623,9 @@ export const initActiveVaultInstance = async ({ id, encryptionKey }) => {
     // cache last init params for restart
     lastActiveVaultId = id
     lastActiveVaultEncryptionKey = encryptionKey
+
+    // First launch (no watermark): convert records + copy files once; later opens no-op.
+    await runVaultMigration()
 
     if (lastOnUpdateCallback) {
       lastOnUpdateCallback()
@@ -601,6 +822,62 @@ export const activeVaultAdd = async (key, data, file, fileName) => {
   }
   try {
     await activeVaultInstance.add(key, JSON.stringify(data), file)
+
+    // Local dual-write / projection (companion namespace). Uses raw add to avoid recursion.
+    if (isV1RecordKey(key)) {
+      const id = parseRecordIdFromKey(key)
+      if (id) {
+        const existingV2 = await activeVaultGetRaw(recordKeyV2(id))
+        const nextV2 =
+          mergeV1IntoV2(data, existingV2) ||
+          (!existingV2 ? convertV1RecordToV2(data) : null)
+        if (nextV2 && !deepEqualJson(nextV2, existingV2)) {
+          await activeVaultInstance.add(recordKeyV2(id), JSON.stringify(nextV2))
+        }
+      }
+    } else if (isV2RecordKey(key)) {
+      const id = parseRecordIdFromKey(key)
+      if (id) {
+        const asV2 =
+          data?.schema === SCHEMA_V2 ? data : convertV1RecordToV2(data)
+        if (asV2 !== data) {
+          await activeVaultInstance.add(key, JSON.stringify(asV2), file)
+        }
+        const projected = projectV2ToV1(asV2)
+        const existingV1 = await activeVaultGetRaw(recordKeyV1(id))
+        if (!existingV1 || !deepEqualJson(existingV1, projected)) {
+          await activeVaultInstance.add(
+            recordKeyV1(id),
+            JSON.stringify(projected)
+          )
+        }
+      }
+    } else if (isV1FileKey(key)) {
+      const v2Key = v1FileKeyToV2(key)
+      if (v2Key) {
+        const existing = await activeVaultInstance.get(v2Key)
+        if (!existing?.file) {
+          await activeVaultInstance.add(
+            v2Key,
+            JSON.stringify(data && typeof data === 'object' ? data : {}),
+            file
+          )
+        }
+      }
+    } else if (isV2FileKey(key)) {
+      const parsed = parseFileKey(key)
+      if (parsed) {
+        const v1Key = fileKeyV1(parsed.recordId, parsed.fileId)
+        const existing = await activeVaultInstance.get(v1Key)
+        if (!existing?.file) {
+          await activeVaultInstance.add(
+            v1Key,
+            JSON.stringify(data && typeof data === 'object' ? data : {}),
+            file
+          )
+        }
+      }
+    }
   } catch (error) {
     const err = new Error(error.message)
     if (fileName) {
@@ -808,6 +1085,38 @@ export const vaultRemove = async (key) => {
   }
 
   await activeVaultInstance.remove(key)
+
+  const vaultExt = (await activeVaultGetRaw(VAULT_EXT_KEY)) || {}
+  const blockV1DeleteMirror = vaultExt.blockV1DeleteMirror === true
+
+  if (isV1RecordKey(key)) {
+    if (!blockV1DeleteMirror) {
+      const id = parseRecordIdFromKey(key)
+      if (id) {
+        await activeVaultInstance.remove(recordKeyV2(id))
+        await removeV2FilesForRecord(id)
+      }
+    }
+  } else if (isV2RecordKey(key)) {
+    const id = parseRecordIdFromKey(key)
+    if (id) {
+      await activeVaultInstance.remove(recordKeyV1(id))
+    }
+  } else if (isV1FileKey(key)) {
+    if (!blockV1DeleteMirror) {
+      const v2Key = v1FileKeyToV2(key)
+      if (v2Key) {
+        await activeVaultInstance.remove(v2Key)
+      }
+    }
+  } else if (isV2FileKey(key)) {
+    const parsed = parseFileKey(key)
+    if (parsed) {
+      await activeVaultInstance.remove(
+        fileKeyV1(parsed.recordId, parsed.fileId)
+      )
+    }
+  }
 }
 
 /**
@@ -852,12 +1161,34 @@ export const activeVaultList = async (filterKey) => {
     throw new Error('Vault not initialised')
   }
 
+  // App login list: prefer v2 when present (merge namespaces by id).
+  if (filterKey === 'record/' || filterKey === 'record-v2/') {
+    const entries = await collectEntriesByFilter(
+      activeVaultInstance,
+      (key) => isV1RecordKey(key) || isV2RecordKey(key)
+    )
+    const byId = new Map()
+    for (const { key, value } of entries) {
+      if (isV1RecordKey(key)) {
+        const id = parseRecordIdFromKey(key)
+        if (id && !byId.has(id)) byId.set(id, value)
+      }
+    }
+    for (const { key, value } of entries) {
+      if (isV2RecordKey(key)) {
+        const id = parseRecordIdFromKey(key)
+        if (id) byId.set(id, value)
+      }
+    }
+    return [...byId.values()].map(enrichRecordForClient)
+  }
+
   const results = await collectValuesByFilter(
     activeVaultInstance,
     filterKey ? (key) => key?.startsWith(filterKey) : undefined
   )
 
-  if (filterKey?.startsWith('record/')) {
+  if (filterKey?.startsWith('record/') || filterKey?.startsWith('record-v2/')) {
     return results.map(enrichRecordForClient)
   }
 
@@ -919,7 +1250,10 @@ export const activeVaultFind = async ({
       })
       continue
     }
-    if (record.key?.startsWith('record/')) {
+    if (
+      record.key?.startsWith('record/') ||
+      record.key?.startsWith('record-v2/')
+    ) {
       results.push({ key: record.key, value: enrichRecordForClient(value) })
     } else {
       results.push({ key: record.key, value })
@@ -953,7 +1287,18 @@ export const activeVaultGet = async (key) => {
     })
   }
 
-  if (key?.startsWith('record/')) {
+  if (isV1RecordKey(key)) {
+    const id = parseRecordIdFromKey(key)
+    if (id) {
+      const v2 = await activeVaultGetRaw(recordKeyV2(id))
+      if (v2) {
+        return enrichRecordForClient(v2)
+      }
+    }
+    return enrichRecordForClient(parsedValue)
+  }
+
+  if (isV2RecordKey(key) || key?.startsWith('record-v2/')) {
     return enrichRecordForClient(parsedValue)
   }
 
@@ -1042,7 +1387,10 @@ export const initListener = async ({ vaultId, onUpdate }) => {
   activeVaultInstance.removeAllListeners()
 
   activeVaultInstance.on('update', () => {
-    onUpdate?.()
+    // Peer/echo updates: incremental reconcile before UI refetch (no full remigrate).
+    scheduleIncrementalReconcile(() => {
+      onUpdate?.()
+    })
   })
 
   listeningVaultId = vaultId
@@ -1456,7 +1804,8 @@ export const generateOtpCodesByIds = async (recordIds) => {
 
   for (const recordId of recordIds) {
     try {
-      const record = await activeVaultGetRaw(`record/${recordId}`)
+      const v2 = await activeVaultGetRaw(recordKeyV2(recordId))
+      const record = v2 || (await activeVaultGetRaw(recordKeyV1(recordId)))
       if (!record?.data?.otp) continue
 
       const otp = record.data.otp
@@ -1488,7 +1837,8 @@ export const generateHotpNext = async (recordId) => {
     throw new Error('Vault not initialised')
   }
 
-  const record = await activeVaultGetRaw(`record/${recordId}`)
+  const v2 = await activeVaultGetRaw(recordKeyV2(recordId))
+  const record = v2 || (await activeVaultGetRaw(recordKeyV1(recordId)))
   if (!record) {
     throw new Error('Record not found')
   }
@@ -1502,7 +1852,8 @@ export const generateHotpNext = async (recordId) => {
   const { code } = generateHOTP({ ...otp, counter: newCounter })
 
   record.data.otp = { ...otp, counter: newCounter }
-  await activeVaultAdd(`record/${recordId}`, record)
+  record.updatedAt = Date.now()
+  await writeRecordV2AndProjectV1(createActiveVaultAdapter(), recordId, record)
 
   return { code, counter: newCounter }
 }
@@ -1518,14 +1869,16 @@ export const addOtpToRecord = async (recordId, otpInput) => {
     throw new Error('Vault not initialised')
   }
 
-  const record = await activeVaultGetRaw(`record/${recordId}`)
+  const v2 = await activeVaultGetRaw(recordKeyV2(recordId))
+  const record = v2 || (await activeVaultGetRaw(recordKeyV1(recordId)))
   if (!record?.data) {
     throw new Error('Record not found')
   }
 
   const otpConfig = parseOtpInput(otpInput)
   record.data.otp = otpConfig
-  await activeVaultAdd(`record/${recordId}`, record)
+  record.updatedAt = Date.now()
+  await writeRecordV2AndProjectV1(createActiveVaultAdapter(), recordId, record)
 }
 
 /**
@@ -1538,13 +1891,15 @@ export const removeOtpFromRecord = async (recordId) => {
     throw new Error('Vault not initialised')
   }
 
-  const record = await activeVaultGetRaw(`record/${recordId}`)
+  const v2 = await activeVaultGetRaw(recordKeyV2(recordId))
+  const record = v2 || (await activeVaultGetRaw(recordKeyV1(recordId)))
   if (!record?.data) {
     throw new Error('Record not found')
   }
 
   delete record.data.otp
-  await activeVaultAdd(`record/${recordId}`, record)
+  record.updatedAt = Date.now()
+  await writeRecordV2AndProjectV1(createActiveVaultAdapter(), recordId, record)
 }
 
 /**
@@ -1559,11 +1914,22 @@ export const findOtpDuplicates = async ({ secret, excludeRecordId } = {}) => {
 
   if (!secret) return []
 
-  const records = await collectValuesByFilter(activeVaultInstance, (key) =>
-    key?.startsWith('record/')
+  const entries = await collectEntriesByFilter(
+    activeVaultInstance,
+    (key) => isV1RecordKey(key) || isV2RecordKey(key)
   )
+  const byId = new Map()
+  for (const { key, value } of entries) {
+    const id = parseRecordIdFromKey(key)
+    if (!id) continue
+    if (isV2RecordKey(key) || !byId.has(id)) {
+      byId.set(id, value)
+    }
+  }
 
-  return filterDuplicateRecords(secret, records, { excludeRecordId })
+  return filterDuplicateRecords(secret, [...byId.values()], {
+    excludeRecordId
+  })
 }
 
 /**
@@ -1578,9 +1944,18 @@ export const exportOtpRecords = async () => {
     throw new Error('Vault not initialised')
   }
 
-  const records = await collectValuesByFilter(activeVaultInstance, (key) =>
-    key?.startsWith('record/')
+  const entries = await collectEntriesByFilter(
+    activeVaultInstance,
+    (key) => isV1RecordKey(key) || isV2RecordKey(key)
   )
+  const byId = new Map()
+  for (const { key, value } of entries) {
+    const id = parseRecordIdFromKey(key)
+    if (!id) continue
+    if (isV2RecordKey(key) || !byId.has(id)) {
+      byId.set(id, value)
+    }
+  }
 
-  return toExportableOtpRecords(records)
+  return toExportableOtpRecords([...byId.values()])
 }

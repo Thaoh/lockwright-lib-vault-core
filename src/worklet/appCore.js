@@ -61,7 +61,8 @@ import {
   addOtpToRecord,
   removeOtpFromRecord,
   findOtpDuplicates,
-  exportOtpRecords
+  exportOtpRecords,
+  getVaultMigrationStatus
 } from './appDeps'
 import { decryptAegisExport } from './decryptAegisExport'
 import { decryptBitwardenExport } from './decryptBitwardenExport'
@@ -492,6 +493,11 @@ export const handleRpcCommand = async (req) => {
       req.reply(
         JSON.stringify({ data: { status: getIsActiveVaultInitialized() } })
       )
+
+      break
+
+    case API.GET_VAULT_MIGRATION_STATUS:
+      req.reply(JSON.stringify({ data: getVaultMigrationStatus() }))
 
       break
 

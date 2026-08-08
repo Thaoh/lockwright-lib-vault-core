@@ -1,0 +1,6 @@
+# Single-package workspace (pnpm v11 project settings).
+strictPeerDependencies: false
+autoInstallPeers: true
+
+allowBuilds:
+  "unrs-resolver@1.12.2": true

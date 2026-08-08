@@ -363,6 +363,22 @@ export class PearpassVaultClient extends EventEmitter {
   }
 
   /**
+   * Schema-2 migrate status for the active vault (boot gate).
+   * @returns {Promise<{
+   *   ready: boolean,
+   *   inProgress: boolean,
+   *   migratedToSchema: number|null,
+   *   error: string|null,
+   *   lastResult: object|null
+   * }>}
+   */
+  async getVaultMigrationStatus() {
+    return this._handleRequest({
+      command: API.GET_VAULT_MIGRATION_STATUS
+    })
+  }
+
+  /**
    * Records a failed master password attempt for rate limiting.
    * @returns {Promise<Object>}
    */

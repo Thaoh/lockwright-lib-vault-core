@@ -26,7 +26,10 @@ const redactKeyedPayload = (requestData) => {
     }
   }
 
-  if (requestData.key.startsWith('record/')) {
+  if (
+    requestData.key.startsWith('record/') ||
+    requestData.key.startsWith('record-v2/')
+  ) {
     const next = { ...data }
     let changed = false
     if (next.data !== undefined) {

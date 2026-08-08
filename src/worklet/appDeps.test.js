@@ -208,13 +208,16 @@ jest.mock('bare-path', () => ({
   }
 }))
 
-jest.mock('@tetherto/swarmconf', () =>
-  jest.fn().mockImplementation(() => ({
-    ready: jest.fn().mockResolvedValue(),
-    current: {
-      blindRelays: []
-    }
-  }))
+jest.mock(
+  '@tetherto/swarmconf',
+  () =>
+    jest.fn().mockImplementation(() => ({
+      ready: jest.fn().mockResolvedValue(),
+      current: {
+        blindRelays: []
+      }
+    })),
+  { virtual: true }
 )
 
 // blind-encryption-sodium pulls sodium-universal native bindings; stub it.
