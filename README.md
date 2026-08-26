@@ -8,7 +8,9 @@ Bare-runtime vault core for Lockwright. Create, encrypt, and manage password vau
 
 npm name is still `@tetherto/pearpass-lib-vault-core` until identity lands.
 
-Community fork of PearPass (Apache 2.0). Not affiliated with or endorsed by Tether Data or the Pears project.
+Site: [lockwright.dexterity.works](https://lockwright.dexterity.works)
+
+Community fork of PearPass (Apache 2.0). Not affiliated with or endorsed by Tether Data or the Pears project. This GitHub repo stays a fork of `tetherto/pearpass-lib-vault-core` on purpose. Do not open pull requests against Tether.
 
 ## Table of Contents
 
@@ -129,6 +131,10 @@ await client.closeAllInstances();
 - [lockwright-app-browser-extension](https://github.com/Thaoh/lockwright-app-browser-extension)
 - [lockwright-lib-vault](https://github.com/Thaoh/lockwright-lib-vault)
 - [lockwright-lib-constants](https://github.com/Thaoh/lockwright-lib-constants)
+
+## Contributing
+
+Open issues and pull requests on this repo (`Thaoh/lockwright-lib-vault-core`). Do not open PRs against `tetherto/pearpass-lib-vault-core`. See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## License
 
