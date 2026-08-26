@@ -6,8 +6,6 @@
 
 Bare-runtime vault core for Lockwright. Create, encrypt, and manage password vaults.
 
-npm name is still `@tetherto/pearpass-lib-vault-core` until identity lands.
-
 Site: [lockwright.dexterity.works](https://lockwright.dexterity.works)
 
 Community fork of PearPass (Apache 2.0). Not affiliated with or endorsed by Tether Data or the Pears project. This GitHub repo stays a fork of `tetherto/pearpass-lib-vault-core` on purpose. Do not open pull requests against Tether.
