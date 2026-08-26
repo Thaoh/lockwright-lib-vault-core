@@ -2,37 +2,38 @@
   <img src="docs/logo.svg" alt="Lockwright" width="128"/>
 </p>
 
-# pearpass-lib-vault-core
+# lockwright-lib-vault-core
 
-A bare runtime focused library for managing encrypted password vaults for Pearpass. This library provides a secure way to store, encrypt, and manage password vaults.
+Bare-runtime vault core for Lockwright. Create, encrypt, and manage password vaults.
+
+npm name is still `@tetherto/pearpass-lib-vault-core` until identity lands.
+
+Community fork of PearPass (Apache 2.0). Not affiliated with or endorsed by Tether Data or the Pears project.
 
 ## Table of Contents
 
 - [Features](#features)
-- [Security Notice](#security-notice)
-- [Installation](#installation)
+- [Install](#install)
 - [Usage Examples](#usage-examples)
 - [Dependencies](#dependencies)
 - [Related Projects](#related-projects)
+- [License](#license)
 
 ## Features
 
-- Secure password vault creation and management
-- Local encryption and decryption
+- Encrypted vault create and manage
+- Local encrypt and decrypt
 - Event-based updates
 - Vault sharing via invite codes
-- Debug mode for development
+- Debug mode
 
-## Security Notice
-
-1. To ensure the security and integrity of your projects, please note that official PearPass packages are distributed exclusively through our GitHub organization.
-2. Any packages with similar names found on the npm registry or other third-party package managers are not affiliated with PearPass and should be strictly avoided. We recommend installing directly from this repository to ensure you are using the verified, open-source version.
-
-## Installation
+## Install
 
 ```bash
-npm install git+https://github.com/tetherto/pearpass-lib-vault-core.git
+pnpm add git+https://github.com/Thaoh/lockwright-lib-vault-core.git
 ```
+
+Imports stay `@tetherto/pearpass-lib-vault-core`. That npm name is not this fork if you install it from the npm registry.
 
 ## Usage Examples
 
@@ -123,12 +124,12 @@ await client.closeAllInstances();
 
 ## Related Projects
 
-- [@tetherto/pearpass-app-mobile](https://github.com/tetherto/pearpass-app-mobile) - A mobile app for PearPass, a password manager
-- [@tetherto/pearpass-app-desktop](https://github.com/tetherto/pearpass-app-desktop) - A desktop app for PearPass, a password manager
-- [@tetherto/pearpass-lib-vault](https://github.com/tetherto/pearpass-lib-desktop) - Library for managing encrypted vaults in applications
-- [@tetherto/pearpass-lib-vault-desktop](https://github.com/tetherto/pearpass-lib-desktop) - Client implementation for desktop applications
-- [@tetherto/tether-dev-docs](https://github.com/tetherto/tether-dev-docs) - Documentations and guides for developers
+- [lockwright-app-mobile](https://github.com/Thaoh/lockwright-app-mobile)
+- [lockwright-app-desktop](https://github.com/Thaoh/lockwright-app-desktop)
+- [lockwright-app-browser-extension](https://github.com/Thaoh/lockwright-app-browser-extension)
+- [lockwright-lib-vault](https://github.com/Thaoh/lockwright-lib-vault)
+- [lockwright-lib-constants](https://github.com/Thaoh/lockwright-lib-constants)
 
 ## License
 
-This project is licensed under the Apache License, Version 2.0. See the [LICENSE](./LICENSE) file for details.
+Apache License 2.0. See `LICENSE.md` and `NOTICE.md`.
