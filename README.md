@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" alt="Lockwright" width="128"/>
+</p>
+
 # pearpass-lib-vault-core
 
 A bare runtime focused library for managing encrypted password vaults for Pearpass. This library provides a secure way to store, encrypt, and manage password vaults.
