@@ -401,9 +401,13 @@ export const partitionNamespaceEntries = (entries) => {
  *   missingFileKeys: string[]
  * }>}
  */
-export const migrateToSchema2 = async (vault) => {
+export const migrateToSchema2 = async (vault, options = {}) => {
+  const onProgress =
+    typeof options.onProgress === 'function' ? options.onProgress : null
+
   const vaultExt = (await vault.getJson(VAULT_EXT_KEY)) || {}
   if (Number(vaultExt.migratedToSchema) >= SCHEMA_V2) {
+    onProgress?.({ done: 0, total: 0 })
     return {
       alreadyMigrated: true,
       complete: true,
@@ -417,6 +421,15 @@ export const migrateToSchema2 = async (vault) => {
   const entries = await vault.listEntries()
   const { v1Records, v2Records, v1FileKeys, v2FileKeys } =
     partitionNamespaceEntries(entries)
+
+  const v2FileSet = new Set(v2FileKeys)
+  const filesToCopy = v1FileKeys.filter((v1Key) => {
+    const v2Key = v1FileKeyToV2(v1Key)
+    return v2Key && !v2FileSet.has(v2Key)
+  }).length
+  const total = v1Records.size + filesToCopy
+  let done = 0
+  onProgress?.({ done, total })
 
   let recordsWritten = 0
   let filesCopied = 0
@@ -436,9 +449,10 @@ export const migrateToSchema2 = async (vault) => {
         recordsWritten++
       }
     }
+    done++
+    onProgress?.({ done, total })
   }
 
-  const v2FileSet = new Set(v2FileKeys)
   for (const v1Key of v1FileKeys) {
     const v2Key = v1FileKeyToV2(v1Key)
     if (!v2Key || v2FileSet.has(v2Key)) continue
@@ -452,6 +466,8 @@ export const migrateToSchema2 = async (vault) => {
     v2FileSet.add(v2Key)
     v2FileKeys.push(v2Key)
     filesCopied++
+    done++
+    onProgress?.({ done, total })
   }
 
   const completeness = checkMigrationCompleteness(

@@ -76,13 +76,14 @@ let lastActiveVaultId = null
 let lastActiveVaultEncryptionKey = null
 let lastOnUpdateCallback = null
 
-/** @type {{ ready: boolean, inProgress: boolean, migratedToSchema: number|null, error: string|null, lastResult: object|null }} */
+/** @type {{ ready: boolean, inProgress: boolean, migratedToSchema: number|null, error: string|null, lastResult: object|null, progress: { done: number, total: number }|null }} */
 let vaultMigrationStatus = {
   ready: false,
   inProgress: false,
   migratedToSchema: null,
   error: null,
-  lastResult: null
+  lastResult: null,
+  progress: null
 }
 
 /** @type {Set<string>} */
@@ -97,7 +98,7 @@ const rateLimiter = new RateLimiter()
 
 /**
  * UI can wait on migrate completeness before listing records.
- * @returns {{ ready: boolean, inProgress: boolean, migratedToSchema: number|null, error: string|null, lastResult: object|null }}
+ * @returns {{ ready: boolean, inProgress: boolean, migratedToSchema: number|null, error: string|null, lastResult: object|null, progress: { done: number, total: number }|null }}
  */
 export const getVaultMigrationStatus = () => ({ ...vaultMigrationStatus })
 
@@ -234,7 +235,8 @@ export const closeActiveVaultInstance = async (options) => {
     inProgress: false,
     migratedToSchema: null,
     error: null,
-    lastResult: null
+    lastResult: null,
+    progress: null
   }
 
   if (options?.clearRestartCache) {
@@ -368,7 +370,14 @@ const runVaultMigration = async () => {
 
   try {
     const adapter = createActiveVaultAdapter()
-    const result = await migrateToSchema2(adapter)
+    const result = await migrateToSchema2(adapter, {
+      onProgress: (progress) => {
+        vaultMigrationStatus = {
+          ...vaultMigrationStatus,
+          progress
+        }
+      }
+    })
     await refreshPreviousV1RecordIds()
 
     const vaultExt = (await activeVaultGetRaw(VAULT_EXT_KEY)) || {}
@@ -383,7 +392,8 @@ const runVaultMigration = async () => {
         result.complete || result.alreadyMigrated
           ? null
           : 'Migration incomplete',
-      lastResult: result
+      lastResult: result,
+      progress: vaultMigrationStatus.progress
     }
   } catch (error) {
     workletLogger.error('runVaultMigration failed', error)

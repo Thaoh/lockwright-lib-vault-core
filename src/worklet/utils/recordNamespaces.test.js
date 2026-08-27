@@ -260,6 +260,26 @@ describe('migrateToSchema2', () => {
     expect(result.filesCopied).toBe(0)
     expect(fileCopyLog).toEqual([])
   })
+
+  test('reports n of max as each record and file is copied', async () => {
+    const fileBuf = Buffer.from('attachment-bytes')
+    const { adapter } = createMemoryVault({
+      [recordKeyV1('rec1')]: makeLoginV1({ id: 'rec1' }),
+      [recordKeyV1('rec2')]: makeLoginV1({ id: 'rec2' }),
+      [fileKeyV1('rec1', 'f1')]: { value: {}, file: fileBuf }
+    })
+
+    const ticks = []
+    await migrateToSchema2(adapter, {
+      onProgress: (progress) => {
+        ticks.push({ ...progress })
+      }
+    })
+
+    expect(ticks[0]).toEqual({ done: 0, total: 3 })
+    expect(ticks[ticks.length - 1]).toEqual({ done: 3, total: 3 })
+    expect(ticks.map((t) => t.done)).toEqual([0, 1, 2, 3])
+  })
 })
 
 describe('reconcileDualStore', () => {
