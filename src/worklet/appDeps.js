@@ -41,6 +41,7 @@ import {
   migrateToSchema2,
   reconcileDualStore,
   writeRecordV2AndProjectV1,
+  getRawRecordPreferV2,
   deepEqualJson
 } from './utils/recordNamespaces'
 
@@ -1271,6 +1272,18 @@ export const activeVaultGet = async (key) => {
     throw new Error('Vault not initialised')
   }
 
+  const recordId = parseRecordIdFromKey(key)
+  if (recordId) {
+    const found = await getRawRecordPreferV2(
+      createActiveVaultAdapter(),
+      recordId
+    )
+    if (!found) {
+      return null
+    }
+    return enrichRecordForClient(found.record)
+  }
+
   const res = await activeVaultInstance.get(key)
 
   if (!res || !res.value) {
@@ -1285,21 +1298,6 @@ export const activeVaultGet = async (key) => {
       value: file,
       enumerable: true
     })
-  }
-
-  if (isV1RecordKey(key)) {
-    const id = parseRecordIdFromKey(key)
-    if (id) {
-      const v2 = await activeVaultGetRaw(recordKeyV2(id))
-      if (v2) {
-        return enrichRecordForClient(v2)
-      }
-    }
-    return enrichRecordForClient(parsedValue)
-  }
-
-  if (isV2RecordKey(key) || key?.startsWith('record-v2/')) {
-    return enrichRecordForClient(parsedValue)
   }
 
   return parsedValue

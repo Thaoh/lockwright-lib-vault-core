@@ -21,6 +21,7 @@ import {
   migrateToSchema2,
   reconcileDualStore,
   writeRecordV2AndProjectV1,
+  getRawRecordPreferV2,
   deepEqualJson
 } from './recordNamespaces.js'
 
@@ -378,5 +379,49 @@ describe('writeRecordV2AndProjectV1', () => {
     expect(v1.data.otp.secret).toBe('NEWSECRETBASE32XX')
     expect(v1.data.uris).toBeUndefined()
     expect(v1.schema).toBeUndefined()
+  })
+})
+
+describe('getRawRecordPreferV2', () => {
+  test('returns the v2 row when both namespaces have a record', async () => {
+    const v2 = convertV1RecordToV2(makeLoginV1())
+    v2.data.uris = [{ uri: 'https://example.com', match: 'exact' }]
+    const { adapter } = createMemoryVault({
+      [recordKeyV1('rec1')]: makeLoginV1(),
+      [recordKeyV2('rec1')]: v2
+    })
+
+    const found = await getRawRecordPreferV2(adapter, 'rec1')
+    expect(found.schema).toBe(2)
+    expect(found.record.data.uris).toEqual([
+      { uri: 'https://example.com', match: 'exact' }
+    ])
+  })
+
+  test('returns the v2 row when v1 has been deleted', async () => {
+    const v2 = convertV1RecordToV2(makeLoginV1())
+    const { adapter } = createMemoryVault({
+      [recordKeyV2('rec1')]: v2
+    })
+
+    const found = await getRawRecordPreferV2(adapter, 'rec1')
+    expect(found.schema).toBe(2)
+    expect(found.record).toBe(v2)
+  })
+
+  test('falls back to v1 when v2 is missing', async () => {
+    const v1 = makeLoginV1()
+    const { adapter } = createMemoryVault({
+      [recordKeyV1('rec1')]: v1
+    })
+
+    const found = await getRawRecordPreferV2(adapter, 'rec1')
+    expect(found.schema).toBe(1)
+    expect(found.record).toBe(v1)
+  })
+
+  test('returns null when neither namespace has a row', async () => {
+    const { adapter } = createMemoryVault()
+    expect(await getRawRecordPreferV2(adapter, 'missing')).toBeNull()
   })
 })
