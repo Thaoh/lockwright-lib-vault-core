@@ -45,8 +45,14 @@ export const personalSwarmInit = async () => {
   })
 
   // Symmetric join so the announcer keeps NAT mappings fresh, matching the
-  // pattern Autopass uses for reliable holepunch.
-  await swarm.join(topicBuffer, { server: true, client: true }).flushed()
+  // pattern Autopass uses for reliable holepunch. Do not await flushed():
+  // DHT announce can stall on a phone and the worklet is single-threaded.
+  swarm
+    .join(topicBuffer, { server: true, client: true })
+    .flushed()
+    .catch((err) => {
+      workletLogger.error('personalSwarm: join flushed failed', { err })
+    })
 
   return { topic: b4a.toString(topicBuffer, 'hex') }
 }
