@@ -514,12 +514,16 @@ export class PearpassVaultClient extends EventEmitter {
   /**
    * Lists all records in the active vault.
    * @param {string} filterKey - The key to filter records by.
+   * @param {{ includeOtpCodes?: boolean }} [options]
    * @returns {Promise<Array<Object>>} The list of records.
    */
-  async activeVaultList(filterKey) {
+  async activeVaultList(filterKey, options = {}) {
     return this._handleRequest({
       command: API.ACTIVE_VAULT_LIST,
-      data: { filterKey }
+      data: {
+        filterKey,
+        includeOtpCodes: options.includeOtpCodes === true
+      }
     })
   }
 

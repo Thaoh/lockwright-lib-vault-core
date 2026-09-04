@@ -368,4 +368,28 @@ describe('PearpassVaultClient', () => {
     })
     handleSpy.mockRestore()
   })
+
+  it('activeVaultList omits otp codes unless asked', async () => {
+    const handleSpy = jest.spyOn(client, '_handleRequest').mockResolvedValue([])
+
+    await client.activeVaultList('record-v2/')
+    expect(handleSpy).toHaveBeenCalledWith({
+      command: API.ACTIVE_VAULT_LIST,
+      data: { filterKey: 'record-v2/', includeOtpCodes: false }
+    })
+
+    await client.activeVaultList('record-v2/', { includeOtpCodes: false })
+    expect(handleSpy).toHaveBeenLastCalledWith({
+      command: API.ACTIVE_VAULT_LIST,
+      data: { filterKey: 'record-v2/', includeOtpCodes: false }
+    })
+
+    await client.activeVaultList('record-v2/', { includeOtpCodes: true })
+    expect(handleSpy).toHaveBeenLastCalledWith({
+      command: API.ACTIVE_VAULT_LIST,
+      data: { filterKey: 'record-v2/', includeOtpCodes: true }
+    })
+
+    handleSpy.mockRestore()
+  })
 })
