@@ -563,7 +563,9 @@ export const handleRpcCommand = async (req) => {
 
     case API.ACTIVE_VAULT_LIST:
       try {
-        const listResults = await activeVaultList(requestData?.filterKey)
+        const listResults = await activeVaultList(requestData?.filterKey, {
+          includeOtpCodes: requestData?.includeOtpCodes !== false
+        })
 
         req.reply(JSON.stringify({ data: listResults }))
       } catch (error) {

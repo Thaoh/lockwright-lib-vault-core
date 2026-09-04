@@ -1167,10 +1167,13 @@ export const vaultsList = async (filterKey) => {
 /**
  * @returns {Promise<Array<any>>}
  */
-export const activeVaultList = async (filterKey) => {
+export const activeVaultList = async (filterKey, options = {}) => {
   if (!isActiveVaultInitialized) {
     throw new Error('Vault not initialised')
   }
+
+  const includeOtpCodes = options.includeOtpCodes !== false
+  const enrich = (record) => enrichRecordForClient(record, { includeOtpCodes })
 
   // App login list: prefer v2 when present (merge namespaces by id).
   if (filterKey === 'record/' || filterKey === 'record-v2/') {
@@ -1191,7 +1194,7 @@ export const activeVaultList = async (filterKey) => {
         if (id) byId.set(id, value)
       }
     }
-    return [...byId.values()].map(enrichRecordForClient)
+    return [...byId.values()].map(enrich)
   }
 
   const results = await collectValuesByFilter(
@@ -1200,7 +1203,7 @@ export const activeVaultList = async (filterKey) => {
   )
 
   if (filterKey?.startsWith('record/') || filterKey?.startsWith('record-v2/')) {
-    return results.map(enrichRecordForClient)
+    return results.map(enrich)
   }
 
   return results
@@ -1753,17 +1756,20 @@ const activeVaultGetRaw = async (key) => {
 
 /**
  * Enriches a record for client consumption.
- * If the record has an OTP config, generates the current code,
- * strips the secret, and attaches `otpPublic` to the record.
+ * If the record has an OTP config, strips the secret and attaches
+ * `otpPublic`. Current codes are generated unless
+ * `options.includeOtpCodes` is false (autofill list).
  * The original record in storage is never mutated.
  * @param {object} record
+ * @param {{ includeOtpCodes?: boolean }} [options]
  * @returns {object}
  */
-export const enrichRecordForClient = (record) => {
+export const enrichRecordForClient = (record, options = {}) => {
   if (!record?.data?.otp) {
     return record
   }
 
+  const includeOtpCodes = options.includeOtpCodes !== false
   const otp = record.data.otp
   const enriched = {
     ...record,
@@ -1779,11 +1785,13 @@ export const enrichRecordForClient = (record) => {
     }
 
     if (otp.type === OTP_TYPE.TOTP) {
-      const { code, timeRemaining } = generateTOTP(otp)
       otpPublic.period = otp.period
-      otpPublic.currentCode = code
-      otpPublic.timeRemaining = timeRemaining
-    } else if (otp.type === OTP_TYPE.HOTP) {
+      if (includeOtpCodes) {
+        const { code, timeRemaining } = generateTOTP(otp)
+        otpPublic.currentCode = code
+        otpPublic.timeRemaining = timeRemaining
+      }
+    } else if (otp.type === OTP_TYPE.HOTP && includeOtpCodes) {
       const { code } = generateHOTP(otp)
       otpPublic.currentCode = code
     }

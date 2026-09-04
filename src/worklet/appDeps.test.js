@@ -945,4 +945,39 @@ describe('appDeps module functions (excluding encryption)', () => {
       expect(encryption.resume).toHaveBeenCalled()
     })
   })
+
+  describe('enrichRecordForClient', () => {
+    const totpLogin = () => ({
+      id: 'rec-1',
+      type: 'login',
+      data: {
+        title: 'GitHub',
+        otp: {
+          type: 'TOTP',
+          secret: 'JBSWY3DPEHPK3PXP',
+          digits: 6,
+          period: 30,
+          issuer: 'GitHub',
+          label: 'user'
+        }
+      }
+    })
+
+    test('default list still attaches a current TOTP code', () => {
+      const enriched = appDeps.enrichRecordForClient(totpLogin())
+      expect(enriched.data.otp).toBeUndefined()
+      expect(enriched.otpPublic.type).toBe('TOTP')
+      expect(enriched.otpPublic.currentCode).toMatch(/^\d{6}$/)
+    })
+
+    test('includeOtpCodes false strips the secret and skips code generation', () => {
+      const enriched = appDeps.enrichRecordForClient(totpLogin(), {
+        includeOtpCodes: false
+      })
+      expect(enriched.data.otp).toBeUndefined()
+      expect(enriched.otpPublic.type).toBe('TOTP')
+      expect(enriched.otpPublic).not.toHaveProperty('currentCode')
+      expect(enriched.otpPublic).not.toHaveProperty('timeRemaining')
+    })
+  })
 })

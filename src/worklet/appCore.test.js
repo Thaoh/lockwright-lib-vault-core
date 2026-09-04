@@ -815,11 +815,34 @@ describe('handleRpcCommand', () => {
 
     await handleRpcCommand(req)
 
-    expect(mockActiveVaultList).toHaveBeenCalledWith('filter')
+    expect(mockActiveVaultList).toHaveBeenCalledWith('filter', {
+      includeOtpCodes: true
+    })
     expect(reply).toHaveBeenCalledTimes(1)
 
     const payload = JSON.parse(reply.mock.calls[0][0])
     expect(payload).toEqual({ data: [{ id: '1', name: 'Record 1' }] })
+  })
+
+  test('ACTIVE_VAULT_LIST: skips otp codes when includeOtpCodes is false', async () => {
+    parseRequestData.mockReturnValue({
+      filterKey: 'record-v2/',
+      includeOtpCodes: false
+    })
+    mockActiveVaultList.mockResolvedValue([{ id: '1', name: 'Record 1' }])
+
+    const reply = jest.fn()
+    const req = {
+      command: API.ACTIVE_VAULT_LIST,
+      data: { filterKey: 'record-v2/', includeOtpCodes: false },
+      reply
+    }
+
+    await handleRpcCommand(req)
+
+    expect(mockActiveVaultList).toHaveBeenCalledWith('record-v2/', {
+      includeOtpCodes: false
+    })
   })
 
   test('ACTIVE_VAULT_FIND: success path', async () => {
