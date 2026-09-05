@@ -70,6 +70,9 @@ jest.mock('autopass', () => {
     })
   }
 
+  const mockAutopassUpdate = jest.fn().mockResolvedValue()
+  globalThis.__mockAutopassUpdate = mockAutopassUpdate
+
   const mockAutopass = jest.fn().mockImplementation(() => ({
     ready: jest.fn().mockResolvedValue(),
     close: jest.fn().mockResolvedValue(),
@@ -106,7 +109,7 @@ jest.mock('autopass', () => {
       ready: jest.fn().mockResolvedValue()
     },
     base: {
-      update: jest.fn().mockResolvedValue(),
+      update: (...args) => globalThis.__mockAutopassUpdate(...args),
       view: {
         flush: jest.fn().mockResolvedValue(),
         find: jest.fn().mockReturnValue({
@@ -355,6 +358,8 @@ describe('appDeps module functions (excluding encryption)', () => {
 
   describe('Active vault functions', () => {
     beforeEach(async () => {
+      globalThis.__mockAutopassUpdate.mockReset()
+      globalThis.__mockAutopassUpdate.mockResolvedValue()
       // initActiveVaultInstance calls getHashedPassword → vaultsGet,
       // so vaults must be initialized first.
       await appDeps.setStoragePath('/home/testuser/vaultdata')
@@ -373,6 +378,21 @@ describe('appDeps module functions (excluding encryption)', () => {
         id: 'vault1',
         encryptionKey: 'key'
       })
+      expect(appDeps.getIsActiveVaultInitialized()).toBe(true)
+    })
+
+    test('initActiveVaultInstance returns while Autobase update is still pending', async () => {
+      expect(appDeps.getIsActiveVaultInitialized()).toBe(false)
+      globalThis.__mockAutopassUpdate.mockReturnValue(new Promise(() => {}))
+
+      const opened = appDeps.initActiveVaultInstance({
+        id: 'vault1',
+        encryptionKey: 'key'
+      })
+      const blocked = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('blocked on Autobase update')), 200)
+      })
+      await Promise.race([opened, blocked])
       expect(appDeps.getIsActiveVaultInitialized()).toBe(true)
     })
 

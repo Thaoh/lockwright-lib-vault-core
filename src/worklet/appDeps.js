@@ -626,9 +626,6 @@ export const initActiveVaultInstance = async ({ id, encryptionKey }) => {
       hashedPassword
     })
 
-    // Force linearization and flush to disk so readOnly clients (autofill) can read the data
-    await activeVaultInstance.base.update()
-
     isActiveVaultInitialized = true
 
     // cache last init params for restart
@@ -641,6 +638,12 @@ export const initActiveVaultInstance = async ({ id, encryptionKey }) => {
     if (lastOnUpdateCallback) {
       lastOnUpdateCallback()
     }
+
+    // Autobase.update() waits on missing writer cores over Hyperswarm.
+    // Unlock must not. Flush in background so autofill still sees disk.
+    void activeVaultInstance.base.update().catch((error) => {
+      workletLogger.error('activeVault Autobase update failed', error)
+    })
 
     return activeVaultInstance
   })()
